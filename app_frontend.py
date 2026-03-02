@@ -173,12 +173,14 @@ def _check_api_url():
 
 
 def _submit_video(video_bytes: bytes, filename: str) -> str:
-    """POST /analyze，返回 job_id。"""
+    # 如果你的 Secrets 填的是 https://henryhed--analyze.modal.run
+    # 那么这里直接使用 API_URL，不要加 /analyze
     resp = requests.post(
-        f"{API_URL}/analyze",
+        f"{API_URL}", # 去掉 /analyze
         files={"video": (filename, video_bytes, "video/mp4")},
         timeout=60,
     )
+    # ... 其余不变
     resp.raise_for_status()
     return resp.json()["job_id"]
 
