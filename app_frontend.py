@@ -18,7 +18,7 @@ Ski Pro AI — 轻量级前端（前后端分离版）
 绑定自定义域名 skiproai.online：
     Streamlit Cloud → Settings → Custom domain → 填入 skiproai.online
 """
-
+import modal
 import os
 import time
 import json
@@ -309,17 +309,62 @@ if st.session_state.stage == "upload":
     with btn_col:
         start_btn = st.button("开始 AI 分析  →", use_container_width=True)
 
+    # 1. 引入 Modal 客户端（用于大文件 NFS 绕路传输）
+import modal
+
+def upload_to_nfs_robust(file_obj, filename):
+    """
+    替代 requests.post 的方案。
+    直接通过 Modal 的 NFS 写入，绕过 HTTP Body 限制，极稳。
+    """
+    try:
+        f = modal.NetworkFileSystem.from_name("ski-pro-storage")
+        # 分块读取上传，避免内存撑爆
+        with f.write_file(f"input/{filename}") as remote_file:
+            # 这里的 chunk_size 可以根据网络调优
+            while True:
+                chunk = file_obj.read(10 * 1024 * 1024) # 10MB chunks
+                if not chunk:
+                    break
+                remote_file.write(chunk)
+        return True
+    except Exception as e:
+        st.error(f"传输中断: {e}")
+        return False
+
+# 2. 优化 STAGE 1 的逻辑
+if st.session_state.stage == "upload":
+    # ... 原有的 UI 代码 ...
+    
     if start_btn:
         if not uploaded:
             st.warning("请先上传滑雪视频！")
-        elif not user_name.strip():
-            st.warning("请填写您的昵称！")
         else:
-            with st.spinner("正在提交任务到 Modal 云端…"):
+            # 使用进度条展示“真实”上传进度
+            progress_text = "正在同步超大视频至云端存储..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            # 这里的 uploaded 是 Streamlit 的 UploadedFile 对象
+            success = upload_to_nfs_robust(uploaded, uploaded.name)
+            
+            if success:
+                # 触发后端任务（此时后端只需要文件名，不需要传字节流）
                 try:
-                    video_bytes = uploaded.read()
-                    job_id = _submit_video(video_bytes, uploaded.name)
-                    st.session_state.job_id         = job_id
+                    resp = requests.post(
+                        f"{API_URL}/trigger", # 专门的触发接口
+                        json={
+                            "video_name": uploaded.name,
+                            "user_name": user_name
+                        },
+                        timeout=30
+                    )
+                    job_id = resp.json()["job_id"]
+                    
+                    st.session_state.job_id = job_id
+                    st.session_state.stage = "analyzing"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"任务调度失败: {e}")
                     st.session_state.user_name      = user_name.strip()
                     st.session_state.video_filename = uploaded.name
                     st.session_state.video_bytes    = video_bytes
