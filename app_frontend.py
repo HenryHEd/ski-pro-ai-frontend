@@ -41,7 +41,21 @@ except Exception:
 POLL_INTERVAL_SEC  = 5     # 每 5 秒轮询一次
 MAX_POLL_ATTEMPTS  = 180   # 最多等 15 分钟（超时提示）
 
-
+def upload_to_nfs_robust(file_obj, filename):
+    try:
+        f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
+        remote_path = f"input/{filename}"
+        
+        # 关键点 1：指针重置
+        file_obj.seek(0) 
+        
+        # 关键点 2：显式使用二进制流写入
+        with f.write_file(remote_path) as remote_file:
+            remote_file.write(file_obj.read()) 
+        return True
+    except Exception as e:
+        st.error(f"传输至云端失败: {e}")
+        return False
 # ════════════════════════════════════════════════════════════════════════════
 # 页面配置
 # ════════════════════════════════════════════════════════════════════════════
@@ -319,24 +333,7 @@ if st.session_state.stage == "upload":
 # ════════════════════════════════════════════════════════════════════════════
 
 # 统一放在 _init() 之后，UI 逻辑之前
-def upload_to_nfs_robust(file_obj, filename):
-    try:
-        # 这里的名字必须和 main.py 里的 app = modal.App("...) 一致
-        f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
-        
-        remote_path = f"input/{filename}"
-        file_obj.seek(0)
-        
-        # 使用新版语法：write_file 接收一个路径字符串
-        with f.write_file(remote_path) as remote_file:
-            while True:
-                chunk = file_obj.read(10 * 1024 * 1024) # 10MB 分块
-                if not chunk: break
-                remote_file.write(chunk)
-        return True
-    except Exception as e:
-        st.error(f"❌ 传输失败: {e}")
-        return False
+
 
 
 # 2. 优化 STAGE 1 的逻辑
