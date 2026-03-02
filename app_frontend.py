@@ -297,7 +297,7 @@ if st.session_state.stage == "upload":
   <div style="margin-top:1.2rem;padding:0.8rem 1rem;background:rgba(0,113,227,0.06);
               border-radius:12px;border:1px solid rgba(0,113,227,0.12);
               font-size:0.82rem;color:#0071e3;font-weight:600">
-    ⚡ 由 Modal 云端 GPU 驱动 · 按需启动 · 零运维成本
+    ⚡ 由 NYU 算法团队 AI 支持 · 按需启动
   </div>
 </div>
 """, unsafe_allow_html=True)
