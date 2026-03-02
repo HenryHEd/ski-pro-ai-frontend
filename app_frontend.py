@@ -18,8 +18,15 @@ Ski Pro AI — 轻量级前端（前后端分离版）
 绑定自定义域名 skiproai.online：
     Streamlit Cloud → Settings → Custom domain → 填入 skiproai.online
 """
-import modal
 import os
+import streamlit as st
+
+# 必须在 import modal 之前注入，否则 modal 找不到钥匙
+if "MODAL_TOKEN_ID" in st.secrets:
+    os.environ["MODAL_TOKEN_ID"] = st.secrets["MODAL_TOKEN_ID"]
+    os.environ["MODAL_TOKEN_SECRET"] = st.secrets["MODAL_TOKEN_SECRET"]
+
+import modal  # 现在它能找到钥匙了
 import time
 import json
 import base64
