@@ -1,0 +1,10 @@
+# Streamlit Secrets（含 API 密钥，绝对不能提交）
+.streamlit/secrets.toml
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.env
+
+# macOS
+.DS_Store

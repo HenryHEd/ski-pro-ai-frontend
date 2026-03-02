@@ -1,0 +1,7 @@
+# Ski Pro AI — 前端依赖（极简）
+# 部署到 Streamlit Cloud / 任意免费 VPS 只需安装这几个包
+# 无需 OpenCV、MediaPipe 等重量级 AI 库
+
+streamlit>=1.32.0
+requests>=2.31.0
+plotly>=5.20.0
