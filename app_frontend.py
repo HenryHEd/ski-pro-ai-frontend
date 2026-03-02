@@ -20,19 +20,15 @@ Ski Pro AI — 轻量级前端（前后端分离版）
 """
 import os
 import streamlit as st
+import time
+import requests
 
-# 必须在 import modal 之前注入，否则 modal 找不到钥匙
+# 必须在导入 modal 之前注入 Token
 if "MODAL_TOKEN_ID" in st.secrets:
     os.environ["MODAL_TOKEN_ID"] = st.secrets["MODAL_TOKEN_ID"]
     os.environ["MODAL_TOKEN_SECRET"] = st.secrets["MODAL_TOKEN_SECRET"]
 
-import modal  # 现在它能找到钥匙了
-import time
-import json
-import base64
-
-import requests
-import streamlit as st
+import modal  # 此时导入才不会报 Token Missing
 
 # ── 后端 API 地址
 #    优先级：st.secrets["MODAL_API_URL"] > 环境变量 MODAL_API_URL
@@ -316,102 +312,33 @@ if st.session_state.stage == "upload":
     with btn_col:
         start_btn = st.button("开始 AI 分析  →", use_container_width=True)
 
-    # 1. 引入 Modal 客户端（用于大文件 NFS 绕路传输）
-import modal
-# ════════════════════════════════════════════════════════════════════════════
-import streamlit as st
-import modal
-import requests
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # 工具函数定义 (必须放在调用逻辑之前)
 # ════════════════════════════════════════════════════════════════════════════
 
+# 统一放在 _init() 之后，UI 逻辑之前
 def upload_to_nfs_robust(file_obj, filename):
-    """
-    针对最新版 Modal SDK 优化的上传函数
-    """
     try:
-        # 1. 自动关联已部署的 App 和 NFS
-        # 注意：这里的 'ski-pro-ai' 必须与你 main.py 中 app = modal.App("ski-pro-ai") 一致
+        # 这里的名字必须和 main.py 里的 app = modal.App("...) 一致
         f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
         
-        # 2. 显式指定远程路径
         remote_path = f"input/{filename}"
         file_obj.seek(0)
         
-        # 3. 修复 'missing fp' 报错的关键：确保 write_file 语法正确
-        # 如果是新版 SDK，write_file 的第一个参数必须是目标路径
+        # 使用新版语法：write_file 接收一个路径字符串
         with f.write_file(remote_path) as remote_file:
             while True:
-                chunk = file_obj.read(10 * 1024 * 1024) # 10MB chunk
-                if not chunk:
-                    break
+                chunk = file_obj.read(10 * 1024 * 1024) # 10MB 分块
+                if not chunk: break
                 remote_file.write(chunk)
         return True
     except Exception as e:
-        st.error(f"⚠️ 传输中断: {str(e)}")
-        return False
-    except Exception as e:
-        # 如果是 Token 缺失，这里会抛出更详细的说明
-        st.error(f"⚠️ 传输中断: {e}")
-        if "Token missing" in str(e):
-            st.info("💡 提示：请在 Streamlit Secrets 中配置 MODAL_TOKEN_ID 和 MODAL_TOKEN_SECRET")
+        st.error(f"❌ 传输失败: {e}")
         return False
 
-# ════════════════════════════════════════════════════════════════════════════
-# STAGE 1 — 上传逻辑
-# ════════════════════════════════════════════════════════════════════════════
 
-if st.session_state.stage == "upload":
-    # 这里保留你原本的 UI 代码 (col_left, col_right 等)
-    # ... 你的 UI 布局代码 ...
-
-    if start_btn:
-        if not uploaded:
-            st.warning("请先上传滑雪视频！")
-        elif not user_name:
-            st.warning("请输入您的昵称！")
-        else:
-            # 1. 初始化进度条
-            progress_text = "正在同步大视频至云端存储 (NFS)..."
-            my_bar = st.progress(0, text=progress_text)
-            
-            # 2. 执行 NFS 上传
-            success = upload_to_nfs_robust(uploaded, uploaded.name)
-            
-            if success:
-                my_bar.progress(100, text="✅ 同步完成！正在触发 AI 引擎...")
-                try:
-                    # 3. 整理 API 地址 (确保没有多余斜杠)
-                    base_url = API_URL.strip("/")
-                    
-                    # 4. 触发后端任务
-                    resp = requests.post(
-                        f"{base_url}/trigger", 
-                        json={
-                            "video_name": uploaded.name,
-                            "user_name": user_name.strip()
-                        },
-                        timeout=30
-                    )
-                    resp.raise_for_status() 
-                    
-                    # 5. 获取任务 ID 并跳转
-                    result = resp.json()
-                    if "job_id" in result:
-                        st.session_state.job_id = result["job_id"]
-                        st.session_state.user_name = user_name.strip()
-                        st.session_state.video_filename = uploaded.name
-                        st.session_state.stage = "analyzing"
-                        st.session_state.poll_count = 0
-                        st.rerun()
-                    else:
-                        st.error("后端未返回 job_id，请检查后端代码。")
-                        
-                except Exception as e:
-                    st.error(f"❌ 任务调度失败: {e}")
-                    st.info("请检查后端 API 是否在线，以及后端函数是否带有 @app.web_endpoint(method='POST')")
 # 2. 优化 STAGE 1 的逻辑
 if st.session_state.stage == "upload":
     # ... 原有的 UI 代码 ...
