@@ -329,23 +329,29 @@ import requests
 
 def upload_to_nfs_robust(file_obj, filename):
     """
-    直接通过 Modal 的 NFS 写入，绕过 HTTP 限制，极稳。
+    针对最新版 Modal SDK 优化的上传函数
     """
     try:
-        # 增加 create_if_missing=True 确保前端访问时不会报错
+        # 1. 自动关联已部署的 App 和 NFS
+        # 注意：这里的 'ski-pro-ai' 必须与你 main.py 中 app = modal.App("ski-pro-ai") 一致
         f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
         
-        # 重置文件指针，防止因多次读取导致上传空文件
+        # 2. 显式指定远程路径
+        remote_path = f"input/{filename}"
         file_obj.seek(0)
         
-        # 分块读取上传，避免内存撑爆
-        with f.write_file(f"input/{filename}") as remote_file:
+        # 3. 修复 'missing fp' 报错的关键：确保 write_file 语法正确
+        # 如果是新版 SDK，write_file 的第一个参数必须是目标路径
+        with f.write_file(remote_path) as remote_file:
             while True:
-                chunk = file_obj.read(10 * 1024 * 1024) # 10MB chunks
+                chunk = file_obj.read(10 * 1024 * 1024) # 10MB chunk
                 if not chunk:
                     break
                 remote_file.write(chunk)
         return True
+    except Exception as e:
+        st.error(f"⚠️ 传输中断: {str(e)}")
+        return False
     except Exception as e:
         # 如果是 Token 缺失，这里会抛出更详细的说明
         st.error(f"⚠️ 传输中断: {e}")
