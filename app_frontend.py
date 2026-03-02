@@ -318,7 +318,52 @@ if st.session_state.stage == "upload":
 
     # 1. 引入 Modal 客户端（用于大文件 NFS 绕路传输）
 import modal
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — 上传
+# ════════════════════════════════════════════════════════════════════════════
+if st.session_state.stage == "upload":
+    # ... (这里保留你原本的 col_left, col_right UI 代码) ...
 
+    if start_btn:
+        if not uploaded:
+            st.warning("请先上传滑雪视频！")
+        elif not user_name:
+            st.warning("请输入您的昵称！")
+        else:
+            # 使用进度条展示“真实”上传进度
+            progress_text = "正在同步大视频至云端存储 (NFS)..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            # 执行 NFS 上传
+            success = upload_to_nfs_robust(uploaded, uploaded.name)
+            
+            if success:
+                my_bar.progress(100, text="同步完成！正在触发 AI 引擎...")
+                try:
+                    # 触发后端任务（后端函数名务必与 main.py 对应，建议为 /trigger 或 /analyze_video_gpu）
+                    resp = requests.post(
+                        f"{API_URL}/trigger", 
+                        json={
+                            "video_name": uploaded.name,
+                            "user_name": user_name
+                        },
+                        timeout=30
+                    )
+                    resp.raise_for_status() # 检查 404/500 错误
+                    
+                    job_id = resp.json()["job_id"]
+                    
+                    # 保存状态并跳转
+                    st.session_state.job_id = job_id
+                    st.session_state.user_name = user_name.strip()
+                    st.session_state.video_filename = uploaded.name
+                    # 注意：如果视频很大，不建议把 video_bytes 存在 session_state 里，容易卡死浏览器
+                    st.session_state.stage = "analyzing"
+                    st.session_state.poll_count = 0
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"任务调度失败: {e}\n请检查后端 API 是否在线且函数名为 /trigger")
 def upload_to_nfs_robust(file_obj, filename):
     """
     替代 requests.post 的方案。
