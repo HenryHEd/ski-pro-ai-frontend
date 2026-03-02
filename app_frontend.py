@@ -319,61 +319,27 @@ if st.session_state.stage == "upload":
     # 1. 引入 Modal 客户端（用于大文件 NFS 绕路传输）
 import modal
 # ════════════════════════════════════════════════════════════════════════════
-# STAGE 1 — 上传
-# ════════════════════════════════════════════════════════════════════════════
-if st.session_state.stage == "upload":
-    # ... (这里保留你原本的 col_left, col_right UI 代码) ...
+import streamlit as st
+import modal
+import requests
 
-    if start_btn:
-        if not uploaded:
-            st.warning("请先上传滑雪视频！")
-        elif not user_name:
-            st.warning("请输入您的昵称！")
-        else:
-            # 使用进度条展示“真实”上传进度
-            progress_text = "正在同步大视频至云端存储 (NFS)..."
-            my_bar = st.progress(0, text=progress_text)
-            
-            # 执行 NFS 上传
-            success = upload_to_nfs_robust(uploaded, uploaded.name)
-            
-            if success:
-                my_bar.progress(100, text="同步完成！正在触发 AI 引擎...")
-                try:
-                    # 触发后端任务（后端函数名务必与 main.py 对应，建议为 /trigger 或 /analyze_video_gpu）
-                    resp = requests.post(
-                        f"{API_URL}/trigger", 
-                        json={
-                            "video_name": uploaded.name,
-                            "user_name": user_name
-                        },
-                        timeout=30
-                    )
-                    resp.raise_for_status() # 检查 404/500 错误
-                    
-                    job_id = resp.json()["job_id"]
-                    
-                    # 保存状态并跳转
-                    st.session_state.job_id = job_id
-                    st.session_state.user_name = user_name.strip()
-                    st.session_state.video_filename = uploaded.name
-                    # 注意：如果视频很大，不建议把 video_bytes 存在 session_state 里，容易卡死浏览器
-                    st.session_state.stage = "analyzing"
-                    st.session_state.poll_count = 0
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"任务调度失败: {e}\n请检查后端 API 是否在线且函数名为 /trigger")
+# ════════════════════════════════════════════════════════════════════════════
+# 工具函数定义 (必须放在调用逻辑之前)
+# ════════════════════════════════════════════════════════════════════════════
+
 def upload_to_nfs_robust(file_obj, filename):
     """
-    替代 requests.post 的方案。
-    直接通过 Modal 的 NFS 写入，绕过 HTTP Body 限制，极稳。
+    直接通过 Modal 的 NFS 写入，绕过 HTTP 限制，极稳。
     """
     try:
-        f = modal.NetworkFileSystem.from_name("ski-pro-storage")
+        # 增加 create_if_missing=True 确保前端访问时不会报错
+        f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
+        
+        # 重置文件指针，防止因多次读取导致上传空文件
+        file_obj.seek(0)
+        
         # 分块读取上传，避免内存撑爆
         with f.write_file(f"input/{filename}") as remote_file:
-            # 这里的 chunk_size 可以根据网络调优
             while True:
                 chunk = file_obj.read(10 * 1024 * 1024) # 10MB chunks
                 if not chunk:
@@ -381,9 +347,65 @@ def upload_to_nfs_robust(file_obj, filename):
                 remote_file.write(chunk)
         return True
     except Exception as e:
-        st.error(f"传输中断: {e}")
+        # 如果是 Token 缺失，这里会抛出更详细的说明
+        st.error(f"⚠️ 传输中断: {e}")
+        if "Token missing" in str(e):
+            st.info("💡 提示：请在 Streamlit Secrets 中配置 MODAL_TOKEN_ID 和 MODAL_TOKEN_SECRET")
         return False
 
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — 上传逻辑
+# ════════════════════════════════════════════════════════════════════════════
+
+if st.session_state.stage == "upload":
+    # 这里保留你原本的 UI 代码 (col_left, col_right 等)
+    # ... 你的 UI 布局代码 ...
+
+    if start_btn:
+        if not uploaded:
+            st.warning("请先上传滑雪视频！")
+        elif not user_name:
+            st.warning("请输入您的昵称！")
+        else:
+            # 1. 初始化进度条
+            progress_text = "正在同步大视频至云端存储 (NFS)..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            # 2. 执行 NFS 上传
+            success = upload_to_nfs_robust(uploaded, uploaded.name)
+            
+            if success:
+                my_bar.progress(100, text="✅ 同步完成！正在触发 AI 引擎...")
+                try:
+                    # 3. 整理 API 地址 (确保没有多余斜杠)
+                    base_url = API_URL.strip("/")
+                    
+                    # 4. 触发后端任务
+                    resp = requests.post(
+                        f"{base_url}/trigger", 
+                        json={
+                            "video_name": uploaded.name,
+                            "user_name": user_name.strip()
+                        },
+                        timeout=30
+                    )
+                    resp.raise_for_status() 
+                    
+                    # 5. 获取任务 ID 并跳转
+                    result = resp.json()
+                    if "job_id" in result:
+                        st.session_state.job_id = result["job_id"]
+                        st.session_state.user_name = user_name.strip()
+                        st.session_state.video_filename = uploaded.name
+                        st.session_state.stage = "analyzing"
+                        st.session_state.poll_count = 0
+                        st.rerun()
+                    else:
+                        st.error("后端未返回 job_id，请检查后端代码。")
+                        
+                except Exception as e:
+                    st.error(f"❌ 任务调度失败: {e}")
+                    st.info("请检查后端 API 是否在线，以及后端函数是否带有 @app.web_endpoint(method='POST')")
 # 2. 优化 STAGE 1 的逻辑
 if st.session_state.stage == "upload":
     # ... 原有的 UI 代码 ...
