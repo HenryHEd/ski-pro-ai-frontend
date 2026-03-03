@@ -28,8 +28,6 @@ if "MODAL_TOKEN_ID" in st.secrets:
     os.environ["MODAL_TOKEN_ID"] = st.secrets["MODAL_TOKEN_ID"]
     os.environ["MODAL_TOKEN_SECRET"] = st.secrets["MODAL_TOKEN_SECRET"]
 
-import modal  # 此时导入才不会报 Token Missing
-
 # ── 后端 API 地址
 #    优先级：st.secrets["MODAL_API_URL"] > 环境变量 MODAL_API_URL
 try:
@@ -41,21 +39,9 @@ except Exception:
 POLL_INTERVAL_SEC  = 5     # 每 5 秒轮询一次
 MAX_POLL_ATTEMPTS  = 180   # 最多等 15 分钟（超时提示）
 
-def upload_to_nfs_robust(file_obj, filename):
-    try:
-        f = modal.NetworkFileSystem.from_name("ski-pro-storage", create_if_missing=True)
-        remote_path = f"input/{filename}"
-        
-        # 关键点 1：指针重置
-        file_obj.seek(0) 
-        
-        # 关键点 2：显式使用二进制流写入
-        with f.write_file(remote_path) as remote_file:
-            remote_file.write(file_obj.read()) 
-        return True
-    except Exception as e:
-        st.error(f"传输至云端失败: {e}")
-        return False
+import io
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # 页面配置
 # ════════════════════════════════════════════════════════════════════════════
@@ -341,43 +327,28 @@ if st.session_state.stage == "upload":
     # ... 原有的 UI 代码 ...
     
     if start_btn:
-        if not uploaded:
-            st.warning("请先上传滑雪视频！")
-        else:
-            # 使用进度条展示“真实”上传进度
-            progress_text = "正在同步超大视频至云端存储..."
-            my_bar = st.progress(0, text=progress_text)
-            
-            # 这里的 uploaded 是 Streamlit 的 UploadedFile 对象
-            success = upload_to_nfs_robust(uploaded, uploaded.name)
-            
-            if success:
-                # 触发后端任务（此时后端只需要文件名，不需要传字节流）
-                try:
-                    resp = requests.post(
-                        f"{API_URL}/trigger", # 专门的触发接口
-                        json={
-                            "video_name": uploaded.name,
-                            "user_name": user_name
-                        },
-                        timeout=30
-                    )
-                    job_id = resp.json()["job_id"]
-                    
-                    st.session_state.job_id = job_id
-                    st.session_state.stage = "analyzing"
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"任务调度失败: {e}")
-                    st.session_state.user_name      = user_name.strip()
-                    st.session_state.video_filename = uploaded.name
-                    st.session_state.video_bytes    = video_bytes
-                    st.session_state.stage          = "analyzing"
-                    st.session_state.poll_count     = 0
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"提交失败：{e}\n\n请检查 Modal API 是否已部署。")
+    if not uploaded:
+        st.warning("请先上传滑雪视频！")
+    else:
+        try:
+            # 读取视频字节
+            video_bytes = uploaded.read()
 
+            # 调用 Modal API（直接上传视频）
+            job_id = _submit_video(video_bytes, uploaded.name)
+
+            # 存 session
+            st.session_state.job_id = job_id
+            st.session_state.user_name = user_name.strip()
+            st.session_state.video_filename = uploaded.name
+            st.session_state.video_bytes = video_bytes
+            st.session_state.stage = "analyzing"
+            st.session_state.poll_count = 0
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"提交失败：{e}\n\n请检查 Modal API 是否已部署。")
 
 # ════════════════════════════════════════════════════════════════════════════
 # STAGE 2 — 轮询等待
@@ -390,7 +361,7 @@ elif st.session_state.stage == "analyzing":
         st.markdown('<div class="apple-card animate-in">', unsafe_allow_html=True)
         st.markdown(
             '<div style="font-size:1.6rem;font-weight:600;color:#1d1d1f;'
-            'letter-spacing:-0.02em;margin-bottom:0.25rem">☁️ Modal 云端分析中…</div>'
+            'letter-spacing:-0.02em;margin-bottom:0.25rem">☁️ AI数据库 云端分析中…</div>'
             '<p style="color:#6e6e73;font-size:0.88rem;margin-bottom:1.2rem">'
             'AI 正在提取骨骼、计算立刃角、生成诊断报告，请稍候（通常 2–5 分钟）</p>',
             unsafe_allow_html=True,
