@@ -3,6 +3,14 @@
 # 无需 OpenCV、MediaPipe 等重量级 AI 库
 
 streamlit>=1.32.0
+numpy>=1.26.0
+pandas>=2.2.0
 requests>=2.31.0
 plotly>=5.20.0
-modal
+
+opencv-python-headless>=4.9.0
+mediapipe>=0.10.0
+Pillow>=10.3.0
+imageio-ffmpeg>=0.4.9
+
+modal>=0.61.0
